@@ -123,7 +123,7 @@ PY
           if tar -tf "$ARCHIVE" >/dev/null 2>&1; then
             tar -xf "$ARCHIVE" -C "$EXTRACTED"
           else
-            case "$HEADERS_URL" in
+            case "$FINAL_URL" in
               *.tar.gz|*.tgz) tar -xzf "$ARCHIVE" -C "$EXTRACTED" ;;
               *.tar.xz|*.txz) tar -xJf "$ARCHIVE" -C "$EXTRACTED" ;;
               *.tar) tar -xf "$ARCHIVE" -C "$EXTRACTED" ;;
