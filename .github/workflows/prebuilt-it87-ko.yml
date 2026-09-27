@@ -216,7 +216,6 @@ PY
             "$KBUILD_DIR/Makefile"
             "$KBUILD_DIR/include/config/auto.conf"
             "$KBUILD_DIR/include/generated/autoconf.h"
-            "$KBUILD_DIR/include/generated/compile.h"
             "$KBUILD_DIR/include/generated/utsrelease.h"
             "$KBUILD_DIR/scripts/Makefile.build"
           )
@@ -234,10 +233,6 @@ PY
               sed -n 's/^#define LINUX_COMPILER "\(.*\)"/\1/p' "$KBUILD_DIR/include/generated/compile.h" || true
             } | sed -n 's/.*gcc[^0-9]*\([0-9][0-9]*\)\..*/\1/p' | head -n1
           )"
-          if [ -z "$GCC_MAJOR" ]; then
-            echo "Could not determine GCC major version from kernel build metadata." >&2
-            exit 1
-          fi
 
           echo "kbuild_dir=$KBUILD_DIR" >> "$GITHUB_OUTPUT"
           echo "headers_root=$EXTRACTED" >> "$GITHUB_OUTPUT"
@@ -247,10 +242,13 @@ PY
         run: |
           set -euo pipefail
           GCC_MAJOR="${{ steps.headers.outputs.gcc_major }}"
-          CC_BIN="gcc-$GCC_MAJOR"
-          if ! command -v "$CC_BIN" >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "$CC_BIN"
+          CC_BIN="gcc"
+          if [ -n "$GCC_MAJOR" ]; then
+            CC_BIN="gcc-$GCC_MAJOR"
+            if ! command -v "$CC_BIN" >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends "$CC_BIN"
+            fi
           fi
           command -v "$CC_BIN" >/dev/null 2>&1 || {
             echo "Required compiler $CC_BIN is not available on runner." >&2
