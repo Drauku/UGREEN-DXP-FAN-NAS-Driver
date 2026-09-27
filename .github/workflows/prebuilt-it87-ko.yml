@@ -72,21 +72,26 @@ if parsed.scheme != "https":
 if not parsed.hostname:
     raise SystemExit("Could not parse host from kernel_headers_url.")
 host = parsed.hostname
+port = parsed.port or 443
 if host == "localhost" or host.endswith(".localhost"):
     raise SystemExit("Localhost targets are not allowed for kernel_headers_url.")
 
 try:
-    infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
 except socket.gaierror as exc:
     raise SystemExit(f"Could not resolve host '{host}': {exc}") from exc
 
 ips = {info[4][0] for info in infos}
 if not ips:
     raise SystemExit(f"Could not resolve host '{host}'.")
+global_ips = []
 for ip in ips:
     addr = ipaddress.ip_address(ip)
-    if not addr.is_global:
-        raise SystemExit(f"kernel_headers_url resolved to non-global address '{ip}', rejecting.")
+    if addr.is_global:
+        global_ips.append(ip)
+if not global_ips:
+    raise SystemExit(f"kernel_headers_url resolved only to non-global addresses, rejecting.")
+print(f"{host}\t{port}\t{sorted(global_ips)[0]}")
 PY
           }
 
@@ -132,8 +137,15 @@ with tf:
 PY
           }
 
-          validate_headers_url "$HEADERS_URL"
-          curl -fsS --proto '=https' --max-redirs 0 --output "$ARCHIVE" "$HEADERS_URL"
+          IFS=$'\t' read -r RESOLVED_HOST RESOLVED_PORT RESOLVED_IP <<< "$(validate_headers_url "$HEADERS_URL")"
+          CURL_RESOLVED_IP="$RESOLVED_IP"
+          if [[ "$RESOLVED_IP" == *:* ]]; then
+            CURL_RESOLVED_IP="[$RESOLVED_IP]"
+          fi
+          curl -fsS --proto '=https' --max-redirs 0 \
+            --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${CURL_RESOLVED_IP}" \
+            --output "$ARCHIVE" \
+            "$HEADERS_URL"
           extract_archive_safely "$ARCHIVE" "$EXTRACTED"
 
           resolve_kernel_build_dir() {
