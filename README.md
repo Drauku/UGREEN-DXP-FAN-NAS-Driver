@@ -174,6 +174,27 @@ sudo systemctl enable --now ugreen-fan-control.service
 
 </details>
 
+## Build a prebuilt `it87.ko` with GitHub Actions
+
+If your target system has no DKMS/gcc/systemd (for example unRAID), you can
+build a precompiled module artifact in GitHub Actions:
+
+1. Open **Actions** → **Build Prebuilt it87.ko**
+2. Run the workflow and provide:
+   - `kernel_version` from `uname -r` on the target box
+   - `kernel_headers_url` to a headers/build-tree archive for that exact kernel
+   - `kernel_build_path` only if auto-detection fails (path inside the archive to the kernel build directory)
+3. Download artifact `it87-ko-<kernel_version>` from the workflow run
+
+The artifact contains:
+- `it87.ko`
+- `modinfo.txt`
+- `it87.ko.sha256`
+
+> [!IMPORTANT]
+> The module must be built against matching headers for the exact kernel release
+> you plan to load it on.
+
 ## Uninstall
 
 To remove the driver, services, and configuration files:

@@ -1,0 +1,136 @@
+name: Build Prebuilt it87.ko
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: 'Target kernel release (uname -r), e.g. 6.18.38-Unraid'
+        required: true
+        default: '6.18.38-Unraid'
+      kernel_headers_url:
+        description: 'URL to a tar/tar.gz/tar.xz/txz archive containing kernel headers/build tree'
+        required: true
+      kernel_build_path:
+        description: 'Optional path inside extracted archive to kernel build dir (contains top-level Makefile)'
+        required: false
+        default: ''
+      build_mode:
+        description: 'Module build mode'
+        required: true
+        type: choice
+        options:
+          - prod
+          - dev
+        default: prod
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
+      HEADERS_URL: ${{ github.event.inputs.kernel_headers_url }}
+      KERNEL_BUILD_PATH_INPUT: ${{ github.event.inputs.kernel_build_path }}
+      BUILD_MODE: ${{ github.event.inputs.build_mode }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            xz-utils
+
+      - name: Download and extract kernel headers
+        id: headers
+        run: |
+          set -euo pipefail
+          WORKDIR="$RUNNER_TEMP/kernel-headers"
+          ARCHIVE="$WORKDIR/headers.pkg"
+          EXTRACTED="$WORKDIR/extracted"
+          mkdir -p "$WORKDIR" "$EXTRACTED"
+
+          curl -fL "$HEADERS_URL" -o "$ARCHIVE"
+
+          case "$HEADERS_URL" in
+            *.tar.gz|*.tgz) tar -xzf "$ARCHIVE" -C "$EXTRACTED" ;;
+            *.tar.xz|*.txz) tar -xJf "$ARCHIVE" -C "$EXTRACTED" ;;
+            *.tar) tar -xf "$ARCHIVE" -C "$EXTRACTED" ;;
+            *)
+              echo "Unsupported archive type: $HEADERS_URL" >&2
+              exit 1
+              ;;
+          esac
+
+          resolve_kernel_build_dir() {
+            local base="$1"
+            local requested="${2:-}"
+            if [ -n "$requested" ]; then
+              if [ -d "$base/$requested" ] && [ -f "$base/$requested/Makefile" ]; then
+                echo "$base/$requested"
+                return 0
+              fi
+              echo "kernel_build_path '$requested' not found or missing Makefile" >&2
+              return 1
+            fi
+
+            local from_modules="$base/lib/modules/$KERNEL_VERSION/build"
+            if [ -d "$from_modules" ] && [ -f "$from_modules/Makefile" ]; then
+              echo "$from_modules"
+              return 0
+            fi
+
+            local candidate
+            candidate=$(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | grep -E '/(build|linux-headers|headers)[^/]*$' | head -n1 || true)
+            if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+              echo "$candidate"
+              return 0
+            fi
+
+            return 1
+          }
+
+          KBUILD_DIR="$(resolve_kernel_build_dir "$EXTRACTED" "$KERNEL_BUILD_PATH_INPUT")"
+          if [ -z "$KBUILD_DIR" ]; then
+            echo "Could not locate a usable kernel build directory in downloaded headers." >&2
+            echo "Provide kernel_build_path explicitly (path relative to archive root)." >&2
+            exit 1
+          fi
+
+          echo "kbuild_dir=$KBUILD_DIR" >> "$GITHUB_OUTPUT"
+          echo "headers_root=$EXTRACTED" >> "$GITHUB_OUTPUT"
+
+      - name: Build it87.ko
+        run: |
+          set -euo pipefail
+          make -C it87 clean || true
+          make -C it87 \
+            TARGET="$KERNEL_VERSION" \
+            KERNEL_BUILD="${{ steps.headers.outputs.kbuild_dir }}" \
+            BUILD="$BUILD_MODE"
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          OUT_DIR="$RUNNER_TEMP/artifacts"
+          mkdir -p "$OUT_DIR"
+          cp it87/it87.ko "$OUT_DIR/"
+          modinfo "$OUT_DIR/it87.ko" > "$OUT_DIR/modinfo.txt"
+          printf '%s\n' "$KERNEL_VERSION" > "$OUT_DIR/kernel-version.txt"
+          printf '%s\n' "${{ steps.headers.outputs.kbuild_dir }}" > "$OUT_DIR/kernel-build-dir.txt"
+          sha256sum "$OUT_DIR/it87.ko" > "$OUT_DIR/it87.ko.sha256"
+          ls -lah "$OUT_DIR"
+
+      - name: Upload prebuilt module
+        uses: actions/upload-artifact@v4
+        with:
+          name: it87-ko-${{ github.event.inputs.kernel_version }}
+          path: ${{ runner.temp }}/artifacts/*
+          if-no-files-found: error
