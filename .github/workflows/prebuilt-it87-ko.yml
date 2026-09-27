@@ -145,7 +145,7 @@ PY
           for resolved_ip in "${RESOLVED_IP_ARRAY[@]}"; do
             if HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= NO_PROXY= https_proxy= http_proxy= all_proxy= no_proxy= \
               curl -fsS --proto '=https' --max-redirs 0 \
-              --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}" \
+              --connect-to "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}:${RESOLVED_PORT}" \
               --output "$ARCHIVE" \
               "$HEADERS_URL"; then
               downloaded=1
