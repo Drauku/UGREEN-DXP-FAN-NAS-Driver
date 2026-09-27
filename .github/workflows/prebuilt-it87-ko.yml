@@ -116,6 +116,8 @@ with tf:
         member_path = pathlib.PurePosixPath(member.name)
         if member_path.is_absolute() or ".." in member_path.parts:
             raise SystemExit(f"Unsafe archive entry path: {member.name}")
+        if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
+            raise SystemExit(f"Unsupported archive entry type: {member.name}")
         if member.issym() or member.islnk():
             link_path = pathlib.PurePosixPath(member.linkname)
             if link_path.is_absolute():
@@ -141,12 +143,8 @@ PY
           IFS=',' read -r -a RESOLVED_IP_ARRAY <<< "$RESOLVED_IPS"
           downloaded=0
           for resolved_ip in "${RESOLVED_IP_ARRAY[@]}"; do
-            curl_ip="$resolved_ip"
-            if [[ "$resolved_ip" == *:* ]]; then
-              curl_ip="[$resolved_ip]"
-            fi
             if curl -fsS --proto '=https' --max-redirs 0 \
-              --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${curl_ip}" \
+              --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}" \
               --output "$ARCHIVE" \
               "$HEADERS_URL"; then
               downloaded=1
