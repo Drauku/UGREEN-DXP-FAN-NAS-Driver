@@ -133,7 +133,7 @@ PY
           }
 
           validate_headers_url "$HEADERS_URL"
-          curl -fsS --proto '=https' --output "$ARCHIVE" "$HEADERS_URL"
+          curl -fsS --proto '=https' --max-redirs 0 --output "$ARCHIVE" "$HEADERS_URL"
           extract_archive_safely "$ARCHIVE" "$EXTRACTED"
 
           resolve_kernel_build_dir() {
@@ -163,12 +163,13 @@ PY
               return 0
             fi
 
-            while IFS= read -r candidate; do
+            while IFS= read -r include_linux_dir; do
+              candidate="${include_linux_dir%/include/linux}"
               if is_valid_kernel_build_dir "$candidate"; then
                 echo "$candidate"
                 return 0
               fi
-            done < <(find "$base" -type f -name Makefile | sed 's#/Makefile$##' | sort -u || true)
+            done < <(find "$base" -type d -path '*/include/linux' | sort -u || true)
 
             return 1
           }
