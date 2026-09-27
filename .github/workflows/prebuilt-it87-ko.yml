@@ -206,6 +206,7 @@ PY
           required_files=(
             "$KBUILD_DIR/Makefile"
             "$KBUILD_DIR/include/generated/autoconf.h"
+            "$KBUILD_DIR/include/generated/compile.h"
             "$KBUILD_DIR/include/generated/utsrelease.h"
             "$KBUILD_DIR/scripts/Makefile.build"
           )
@@ -217,14 +218,32 @@ PY
             fi
           done
 
+          GCC_MAJOR="$(sed -n 's/.*gcc[^0-9]*\([0-9][0-9]*\)\..*/\1/p' "$KBUILD_DIR/include/generated/compile.h" | head -n1)"
+          if [ -z "$GCC_MAJOR" ]; then
+            echo "Could not determine GCC major version from $KBUILD_DIR/include/generated/compile.h" >&2
+            exit 1
+          fi
+
           echo "kbuild_dir=$KBUILD_DIR" >> "$GITHUB_OUTPUT"
           echo "headers_root=$EXTRACTED" >> "$GITHUB_OUTPUT"
+          echo "gcc_major=$GCC_MAJOR" >> "$GITHUB_OUTPUT"
 
       - name: Build it87.ko
         run: |
           set -euo pipefail
+          GCC_MAJOR="${{ steps.headers.outputs.gcc_major }}"
+          CC_BIN="gcc-$GCC_MAJOR"
+          if ! command -v "$CC_BIN" >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends "$CC_BIN"
+          fi
+          command -v "$CC_BIN" >/dev/null 2>&1 || {
+            echo "Required compiler $CC_BIN is not available on runner." >&2
+            exit 1
+          }
           make -C it87 clean || true
           make -C it87 \
+            CC="$CC_BIN" \
             TARGET="$KERNEL_VERSION" \
             KERNEL_BUILD="${{ steps.headers.outputs.kbuild_dir }}" \
             BUILD="$BUILD_MODE"
