@@ -171,6 +171,18 @@ PY
               return 1
             fi
 
+            local quick_candidate
+            for quick_candidate in \
+              "$base" \
+              "$base/linux" \
+              "$base/kernel" \
+              "$base/linux-$KERNEL_VERSION"; do
+              if is_valid_kernel_build_dir "$quick_candidate"; then
+                echo "$quick_candidate"
+                return 0
+              fi
+            done
+
             local include_linux_dir candidate
             while IFS= read -r include_linux_dir; do
               candidate="${include_linux_dir%/include/linux}"
