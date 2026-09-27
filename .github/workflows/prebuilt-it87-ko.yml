@@ -91,6 +91,7 @@ for ip in ips:
         global_ips.append(ip)
 if not global_ips:
     raise SystemExit(f"kernel_headers_url resolved only to non-global addresses, rejecting.")
+print(f"{host}\t{port}\t{','.join(sorted(global_ips))}")
 PY
           }
 
@@ -136,10 +137,26 @@ with tf:
 PY
           }
 
-          validate_headers_url "$HEADERS_URL"
-          curl -fsS --proto '=https' --max-redirs 0 \
-            --output "$ARCHIVE" \
-            "$HEADERS_URL"
+          IFS=$'\t' read -r RESOLVED_HOST RESOLVED_PORT RESOLVED_IPS <<< "$(validate_headers_url "$HEADERS_URL")"
+          IFS=',' read -r -a RESOLVED_IP_ARRAY <<< "$RESOLVED_IPS"
+          downloaded=0
+          for resolved_ip in "${RESOLVED_IP_ARRAY[@]}"; do
+            curl_ip="$resolved_ip"
+            if [[ "$resolved_ip" == *:* ]]; then
+              curl_ip="[$resolved_ip]"
+            fi
+            if curl -fsS --proto '=https' --max-redirs 0 \
+              --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${curl_ip}" \
+              --output "$ARCHIVE" \
+              "$HEADERS_URL"; then
+              downloaded=1
+              break
+            fi
+          done
+          if [ "$downloaded" -ne 1 ]; then
+            echo "Failed to download kernel headers from validated global addresses." >&2
+            exit 1
+          fi
           extract_archive_safely "$ARCHIVE" "$EXTRACTED"
 
           resolve_kernel_build_dir() {
