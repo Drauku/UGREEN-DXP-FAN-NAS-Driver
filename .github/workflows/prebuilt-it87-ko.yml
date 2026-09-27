@@ -45,7 +45,6 @@ jobs:
             build-essential \
             ca-certificates \
             curl \
-            file \
             kmod \
             xz-utils
 
@@ -58,73 +57,68 @@ jobs:
           EXTRACTED="$WORKDIR/extracted"
           mkdir -p "$WORKDIR" "$EXTRACTED"
 
-          is_private_ipv4() {
-            local ip="$1"
-            case "$ip" in
-              10.*|127.*|169.254.*|192.168.*) return 0 ;;
-              172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
-            esac
-            return 1
-          }
-
-          is_private_ipv6() {
-            local ip="${1,,}"
-            case "$ip" in
-              ::1|0:0:0:0:0:0:0:1) return 0 ;;
-              fc*|fd*) return 0 ;;                  # unique local (fc00::/7)
-              fe8*|fe9*|fea*|feb*) return 0 ;;     # link-local (fe80::/10)
-            esac
-            return 1
-          }
-
           validate_headers_url() {
             local url="$1"
-            [[ "$url" =~ ^https:// ]] || {
-              echo "Only https:// URLs are allowed for kernel_headers_url." >&2
-              return 1
-            }
+            python3 - "$url" <<'PY'
+import ipaddress
+import socket
+import sys
+import urllib.parse
 
-            local host
-            host="$(printf '%s\n' "$url" | sed -E 's#^https://([^/:]+).*#\1#')"
-            [ -n "$host" ] || {
-              echo "Could not parse host from kernel_headers_url." >&2
-              return 1
-            }
+url = sys.argv[1]
+parsed = urllib.parse.urlparse(url)
+if parsed.scheme != "https":
+    raise SystemExit("Only https:// URLs are allowed for kernel_headers_url.")
+if not parsed.hostname:
+    raise SystemExit("Could not parse host from kernel_headers_url.")
+host = parsed.hostname
+if host == "localhost" or host.endswith(".localhost"):
+    raise SystemExit("Localhost targets are not allowed for kernel_headers_url.")
 
-            case "$host" in
-              localhost|*.localhost)
-                echo "Localhost targets are not allowed for kernel_headers_url." >&2
-                return 1
-                ;;
-            esac
+try:
+    infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+except socket.gaierror as exc:
+    raise SystemExit(f"Could not resolve host '{host}': {exc}") from exc
 
-            local ips_v4 ips_v6 ips
-            ips_v4="$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u || true)"
-            ips_v6="$(getent ahostsv6 "$host" | awk '{print $1}' | sort -u || true)"
-            ips="$(printf '%s\n%s\n' "$ips_v4" "$ips_v6" | sed '/^$/d' | sort -u)"
-            [ -n "$ips" ] || {
-              echo "Could not resolve host '$host'." >&2
-              return 1
-            }
+ips = {info[4][0] for info in infos}
+if not ips:
+    raise SystemExit(f"Could not resolve host '{host}'.")
+for ip in ips:
+    addr = ipaddress.ip_address(ip)
+    if not addr.is_global:
+        raise SystemExit(f"kernel_headers_url resolved to non-global address '{ip}', rejecting.")
+PY
+          }
 
-            local ip
-            for ip in $ips; do
-              if [[ "$ip" == *:* ]]; then
-                if is_private_ipv6 "$ip"; then
-                  echo "kernel_headers_url resolved to private/local IPv6 address '$ip', rejecting." >&2
-                  return 1
-                fi
-              else
-                if is_private_ipv4 "$ip"; then
-                  echo "kernel_headers_url resolved to private/local IPv4 address '$ip', rejecting." >&2
-                  return 1
-                fi
-              fi
-            done
+          validate_archive_paths() {
+            local archive="$1"
+            python3 - "$archive" <<'PY'
+import pathlib
+import sys
+import tarfile
+
+archive = sys.argv[1]
+try:
+    tf = tarfile.open(archive, "r:*")
+except tarfile.TarError as exc:
+    raise SystemExit(f"Unable to read tar archive '{archive}': {exc}") from exc
+
+with tf:
+    for member in tf.getmembers():
+        member_path = pathlib.PurePosixPath(member.name)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            raise SystemExit(f"Unsafe archive entry path: {member.name}")
+        if member.issym() or member.islnk():
+            link_path = pathlib.PurePosixPath(member.linkname)
+            if link_path.is_absolute() or ".." in link_path.parts:
+                raise SystemExit(f"Unsafe archive link target: {member.linkname}")
+PY
           }
 
           validate_headers_url "$HEADERS_URL"
-          curl -fL "$HEADERS_URL" -o "$ARCHIVE"
+          FINAL_URL="$(curl -fsSL --proto '=https' --proto-redir '=https' --write-out '%{url_effective}' --output "$ARCHIVE" "$HEADERS_URL")"
+          validate_headers_url "$FINAL_URL"
+          validate_archive_paths "$ARCHIVE"
 
           if tar -tf "$ARCHIVE" >/dev/null 2>&1; then
             tar -xf "$ARCHIVE" -C "$EXTRACTED"
