@@ -115,14 +115,25 @@ with tf:
             link_path = pathlib.PurePosixPath(member.linkname)
             if link_path.is_absolute() or ".." in link_path.parts:
                 raise SystemExit(f"Unsafe archive link target: {member.linkname}")
+            parent_parts = list(member_path.parent.parts)
+            target_parts = list(link_path.parts)
+            stack = [p for p in parent_parts if p not in ("", ".")]
+            for part in target_parts:
+                if part in ("", "."):
+                    continue
+                if part == "..":
+                    if not stack:
+                        raise SystemExit(f"Archive link escapes extraction root: {member.name} -> {member.linkname}")
+                    stack.pop()
+                else:
+                    stack.append(part)
         safe_members.append(member)
     tf.extractall(path=output_dir, members=safe_members)
 PY
           }
 
           validate_headers_url "$HEADERS_URL"
-          FINAL_URL="$(curl -fsSL --proto '=https' --proto-redir '=https' --write-out '%{url_effective}' --output "$ARCHIVE" "$HEADERS_URL")"
-          validate_headers_url "$FINAL_URL"
+          curl -fsS --proto '=https' --output "$ARCHIVE" "$HEADERS_URL"
           extract_archive_safely "$ARCHIVE" "$EXTRACTED"
 
           resolve_kernel_build_dir() {
@@ -157,7 +168,7 @@ PY
                 echo "$candidate"
                 return 0
               fi
-            done < <(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | grep -E '/(build|linux-headers|headers)[^/]*$' || true)
+            done < <(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | sort -u || true)
 
             return 1
           }
