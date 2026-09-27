@@ -184,6 +184,7 @@ build a precompiled module artifact in GitHub Actions:
    - `kernel_version` from `uname -r` on the target box
    - `kernel_headers_url` to a headers/build-tree archive for that exact kernel
    - `kernel_build_path` only if auto-detection fails (path inside the archive to the kernel build directory)
+   - `build_mode` (`prod` for stripped module, `dev` for debug symbols)
 3. Download artifact `it87-ko-<kernel_version>` from the workflow run
 
 The artifact contains:
