@@ -163,6 +163,7 @@ PY
               return 0
             fi
 
+            local include_linux_dir candidate
             while IFS= read -r include_linux_dir; do
               candidate="${include_linux_dir%/include/linux}"
               if is_valid_kernel_build_dir "$candidate"; then
