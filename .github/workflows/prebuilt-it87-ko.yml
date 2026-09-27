@@ -8,7 +8,7 @@ on:
         required: true
         default: '6.18.38-Unraid'
       kernel_headers_url:
-        description: 'URL to a tar/tar.gz/tar.xz/txz archive containing kernel headers/build tree'
+        description: 'URL to a tar/tar.gz/tar.xz/txz archive containing a prepared kernel build tree'
         required: true
       kernel_build_path:
         description: 'Optional path inside extracted archive to kernel build dir (contains top-level Makefile)'
@@ -210,6 +210,20 @@ PY
             echo "Provide kernel_build_path explicitly (path relative to archive root)." >&2
             exit 1
           fi
+
+          required_files=(
+            "$KBUILD_DIR/Makefile"
+            "$KBUILD_DIR/include/generated/autoconf.h"
+            "$KBUILD_DIR/include/generated/utsrelease.h"
+            "$KBUILD_DIR/scripts/Makefile.build"
+          )
+          for required_file in "${required_files[@]}"; do
+            if [ ! -e "$required_file" ]; then
+              echo "Kernel build tree is not prepared: missing $required_file" >&2
+              echo "Provide an archive from a prepared tree (e.g. after modules_prepare)." >&2
+              exit 1
+            fi
+          done
 
           echo "kbuild_dir=$KBUILD_DIR" >> "$GITHUB_OUTPUT"
           echo "headers_root=$EXTRACTED" >> "$GITHUB_OUTPUT"
