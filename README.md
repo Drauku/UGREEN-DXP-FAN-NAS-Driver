@@ -190,6 +190,8 @@ The artifact contains:
 - `it87.ko`
 - `modinfo.txt`
 - `it87.ko.sha256`
+- `kernel-version.txt`
+- `kernel-build-dir.txt`
 
 > [!IMPORTANT]
 > The module must be built against matching headers for the exact kernel release

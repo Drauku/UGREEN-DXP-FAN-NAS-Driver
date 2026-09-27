@@ -58,6 +58,53 @@ jobs:
           EXTRACTED="$WORKDIR/extracted"
           mkdir -p "$WORKDIR" "$EXTRACTED"
 
+          is_private_ipv4() {
+            local ip="$1"
+            case "$ip" in
+              10.*|127.*|169.254.*|192.168.*) return 0 ;;
+              172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
+            esac
+            return 1
+          }
+
+          validate_headers_url() {
+            local url="$1"
+            [[ "$url" =~ ^https:// ]] || {
+              echo "Only https:// URLs are allowed for kernel_headers_url." >&2
+              return 1
+            }
+
+            local host
+            host="$(printf '%s\n' "$url" | sed -E 's#^https://([^/:]+).*#\1#')"
+            [ -n "$host" ] || {
+              echo "Could not parse host from kernel_headers_url." >&2
+              return 1
+            }
+
+            case "$host" in
+              localhost|*.localhost)
+                echo "Localhost targets are not allowed for kernel_headers_url." >&2
+                return 1
+                ;;
+            esac
+
+            local ips
+            ips="$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u || true)"
+            [ -n "$ips" ] || {
+              echo "Could not resolve host '$host' to IPv4 addresses." >&2
+              return 1
+            }
+
+            local ip
+            for ip in $ips; do
+              if is_private_ipv4 "$ip"; then
+                echo "kernel_headers_url resolved to private/local IPv4 address '$ip', rejecting." >&2
+                return 1
+              fi
+            done
+          }
+
+          validate_headers_url "$HEADERS_URL"
           curl -fL "$HEADERS_URL" -o "$ARCHIVE"
 
           MIME_TYPE="$(file -b --mime-type "$ARCHIVE")"
@@ -74,27 +121,36 @@ jobs:
           resolve_kernel_build_dir() {
             local base="$1"
             local requested="${2:-}"
+            is_valid_kernel_build_dir() {
+              local dir="$1"
+              [ -d "$dir" ] &&
+              [ -f "$dir/Makefile" ] &&
+              [ -d "$dir/include/linux" ] &&
+              [ -f "$dir/Kconfig" ] &&
+              [ -d "$dir/scripts" ]
+            }
+
             if [ -n "$requested" ]; then
-              if [ -d "$base/$requested" ] && [ -f "$base/$requested/Makefile" ]; then
+              if is_valid_kernel_build_dir "$base/$requested"; then
                 echo "$base/$requested"
                 return 0
               fi
-              echo "kernel_build_path '$requested' not found or missing Makefile" >&2
+              echo "kernel_build_path '$requested' is not a valid kernel build directory" >&2
               return 1
             fi
 
             local from_modules="$base/lib/modules/$KERNEL_VERSION/build"
-            if [ -d "$from_modules" ] && [ -f "$from_modules/Makefile" ]; then
+            if is_valid_kernel_build_dir "$from_modules"; then
               echo "$from_modules"
               return 0
             fi
 
-            local candidate
-            candidate=$(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | grep -E '/(build|linux-headers|headers)[^/]*$' | head -n1 || true)
-            if [ -n "$candidate" ] && [ -d "$candidate" ]; then
-              echo "$candidate"
-              return 0
-            fi
+            while IFS= read -r candidate; do
+              if is_valid_kernel_build_dir "$candidate"; then
+                echo "$candidate"
+                return 0
+              fi
+            done < <(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | grep -E '/(build|linux-headers|headers)[^/]*$' || true)
 
             return 1
           }
