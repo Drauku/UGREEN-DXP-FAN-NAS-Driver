@@ -168,7 +168,7 @@ PY
                 echo "$candidate"
                 return 0
               fi
-            done < <(find "$base" -maxdepth 6 -type f -name Makefile | sed 's#/Makefile$##' | sort -u || true)
+            done < <(find "$base" -type f -name Makefile | sed 's#/Makefile$##' | sort -u || true)
 
             return 1
           }
