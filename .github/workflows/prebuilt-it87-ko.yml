@@ -46,6 +46,7 @@ jobs:
             ca-certificates \
             curl \
             file \
+            kmod \
             xz-utils
 
       - name: Download and extract kernel headers
@@ -59,12 +60,13 @@ jobs:
 
           curl -fL "$HEADERS_URL" -o "$ARCHIVE"
 
-          case "$HEADERS_URL" in
-            *.tar.gz|*.tgz) tar -xzf "$ARCHIVE" -C "$EXTRACTED" ;;
-            *.tar.xz|*.txz) tar -xJf "$ARCHIVE" -C "$EXTRACTED" ;;
-            *.tar) tar -xf "$ARCHIVE" -C "$EXTRACTED" ;;
+          MIME_TYPE="$(file -b --mime-type "$ARCHIVE")"
+          case "$MIME_TYPE" in
+            application/gzip|application/x-gzip) tar -xzf "$ARCHIVE" -C "$EXTRACTED" ;;
+            application/x-xz) tar -xJf "$ARCHIVE" -C "$EXTRACTED" ;;
+            application/x-tar) tar -xf "$ARCHIVE" -C "$EXTRACTED" ;;
             *)
-              echo "Unsupported archive type: $HEADERS_URL" >&2
+              echo "Unsupported archive type: $MIME_TYPE" >&2
               exit 1
               ;;
           esac
