@@ -190,7 +190,7 @@ PY
                 echo "$from_modules"
                 return 0
               fi
-            done < <(find "$base" -type d -path "*/lib/modules/$KERNEL_VERSION/build" | sort -u || true)
+            done < <(find "$base" -path "*/lib/modules/$KERNEL_VERSION/build" | sort -u || true)
 
             local include_linux_dir candidate
             while IFS= read -r include_linux_dir; do
@@ -243,7 +243,13 @@ PY
           OUT_DIR="$RUNNER_TEMP/artifacts"
           mkdir -p "$OUT_DIR"
           cp it87/it87.ko "$OUT_DIR/"
-          modinfo "$OUT_DIR/it87.ko" > "$OUT_DIR/modinfo.txt"
+          if ! modinfo "$OUT_DIR/it87.ko" > "$OUT_DIR/modinfo.txt"; then
+            {
+              echo "modinfo unavailable for this module on runner architecture."
+              echo "File type:"
+              file "$OUT_DIR/it87.ko"
+            } > "$OUT_DIR/modinfo.txt"
+          fi
           printf '%s\n' "$KERNEL_VERSION" > "$OUT_DIR/kernel-version.txt"
           printf '%s\n' "${{ steps.headers.outputs.kbuild_dir }}" > "$OUT_DIR/kernel-build-dir.txt"
           sha256sum "$OUT_DIR/it87.ko" > "$OUT_DIR/it87.ko.sha256"
