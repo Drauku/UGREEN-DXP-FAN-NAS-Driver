@@ -143,7 +143,8 @@ PY
           IFS=',' read -r -a RESOLVED_IP_ARRAY <<< "$RESOLVED_IPS"
           downloaded=0
           for resolved_ip in "${RESOLVED_IP_ARRAY[@]}"; do
-            if curl -fsS --proto '=https' --max-redirs 0 \
+            if HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= NO_PROXY= https_proxy= http_proxy= all_proxy= no_proxy= \
+              curl -fsS --proto '=https' --max-redirs 0 \
               --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}" \
               --output "$ARCHIVE" \
               "$HEADERS_URL"; then
@@ -183,6 +184,13 @@ PY
               echo "$from_modules"
               return 0
             fi
+
+            while IFS= read -r from_modules; do
+              if is_valid_kernel_build_dir "$from_modules"; then
+                echo "$from_modules"
+                return 0
+              fi
+            done < <(find "$base" -type d -path "*/lib/modules/$KERNEL_VERSION/build" | sort -u || true)
 
             local include_linux_dir candidate
             while IFS= read -r include_linux_dir; do
