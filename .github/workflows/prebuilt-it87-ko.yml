@@ -171,19 +171,6 @@ PY
               return 1
             fi
 
-            local from_modules="$base/lib/modules/$KERNEL_VERSION/build"
-            if is_valid_kernel_build_dir "$from_modules"; then
-              echo "$from_modules"
-              return 0
-            fi
-
-            while IFS= read -r from_modules; do
-              if is_valid_kernel_build_dir "$from_modules"; then
-                echo "$from_modules"
-                return 0
-              fi
-            done < <(find "$base" -path "*/lib/modules/$KERNEL_VERSION/build" | sort -u || true)
-
             local include_linux_dir candidate
             while IFS= read -r include_linux_dir; do
               candidate="${include_linux_dir%/include/linux}"
@@ -205,6 +192,7 @@ PY
 
           required_files=(
             "$KBUILD_DIR/Makefile"
+            "$KBUILD_DIR/include/config/auto.conf"
             "$KBUILD_DIR/include/generated/autoconf.h"
             "$KBUILD_DIR/include/generated/compile.h"
             "$KBUILD_DIR/include/generated/utsrelease.h"
@@ -218,9 +206,14 @@ PY
             fi
           done
 
-          GCC_MAJOR="$(sed -n 's/.*gcc[^0-9]*\([0-9][0-9]*\)\..*/\1/p' "$KBUILD_DIR/include/generated/compile.h" | head -n1)"
+          GCC_MAJOR="$(
+            {
+              sed -n 's/^CONFIG_CC_VERSION_TEXT="\(.*\)"/\1/p' "$KBUILD_DIR/include/config/auto.conf" || true
+              sed -n 's/^#define LINUX_COMPILER "\(.*\)"/\1/p' "$KBUILD_DIR/include/generated/compile.h" || true
+            } | sed -n 's/.*gcc[^0-9]*\([0-9][0-9]*\)\..*/\1/p' | head -n1
+          )"
           if [ -z "$GCC_MAJOR" ]; then
-            echo "Could not determine GCC major version from $KBUILD_DIR/include/generated/compile.h" >&2
+            echo "Could not determine GCC major version from kernel build metadata." >&2
             exit 1
           fi
 
@@ -254,13 +247,18 @@ PY
           OUT_DIR="$RUNNER_TEMP/artifacts"
           mkdir -p "$OUT_DIR"
           cp it87/it87.ko "$OUT_DIR/"
-          if ! modinfo "$OUT_DIR/it87.ko" > "$OUT_DIR/modinfo.txt"; then
+          if ! modinfo "$OUT_DIR/it87.ko" > "$OUT_DIR/modinfo.txt" 2>"$OUT_DIR/modinfo.err"; then
             {
-              echo "modinfo unavailable for this module on runner architecture."
+              echo "modinfo failed for the produced module."
+              echo ""
+              echo "modinfo stderr:"
+              cat "$OUT_DIR/modinfo.err"
+              echo ""
               echo "File type:"
               file "$OUT_DIR/it87.ko"
             } > "$OUT_DIR/modinfo.txt"
           fi
+          rm -f "$OUT_DIR/modinfo.err"
           printf '%s\n' "$KERNEL_VERSION" > "$OUT_DIR/kernel-version.txt"
           printf '%s\n' "${{ steps.headers.outputs.kbuild_dir }}" > "$OUT_DIR/kernel-build-dir.txt"
           sha256sum "$OUT_DIR/it87.ko" > "$OUT_DIR/it87.ko.sha256"
