@@ -90,19 +90,22 @@ for ip in ips:
 PY
           }
 
-          validate_archive_paths() {
+          extract_archive_safely() {
             local archive="$1"
-            python3 - "$archive" <<'PY'
+            local output_dir="$2"
+            python3 - "$archive" "$output_dir" <<'PY'
 import pathlib
 import sys
 import tarfile
 
 archive = sys.argv[1]
+output_dir = sys.argv[2]
 try:
     tf = tarfile.open(archive, "r:*")
 except tarfile.TarError as exc:
     raise SystemExit(f"Unable to read tar archive '{archive}': {exc}") from exc
 
+safe_members = []
 with tf:
     for member in tf.getmembers():
         member_path = pathlib.PurePosixPath(member.name)
@@ -112,27 +115,15 @@ with tf:
             link_path = pathlib.PurePosixPath(member.linkname)
             if link_path.is_absolute() or ".." in link_path.parts:
                 raise SystemExit(f"Unsafe archive link target: {member.linkname}")
+        safe_members.append(member)
+    tf.extractall(path=output_dir, members=safe_members)
 PY
           }
 
           validate_headers_url "$HEADERS_URL"
           FINAL_URL="$(curl -fsSL --proto '=https' --proto-redir '=https' --write-out '%{url_effective}' --output "$ARCHIVE" "$HEADERS_URL")"
           validate_headers_url "$FINAL_URL"
-          validate_archive_paths "$ARCHIVE"
-
-          if tar -tf "$ARCHIVE" >/dev/null 2>&1; then
-            tar -xf "$ARCHIVE" -C "$EXTRACTED"
-          else
-            case "$FINAL_URL" in
-              *.tar.gz|*.tgz) tar -xzf "$ARCHIVE" -C "$EXTRACTED" ;;
-              *.tar.xz|*.txz) tar -xJf "$ARCHIVE" -C "$EXTRACTED" ;;
-              *.tar) tar -xf "$ARCHIVE" -C "$EXTRACTED" ;;
-              *)
-                echo "Unsupported archive type and auto-detection failed: $HEADERS_URL" >&2
-                exit 1
-                ;;
-            esac
-          fi
+          extract_archive_safely "$ARCHIVE" "$EXTRACTED"
 
           resolve_kernel_build_dir() {
             local base="$1"
