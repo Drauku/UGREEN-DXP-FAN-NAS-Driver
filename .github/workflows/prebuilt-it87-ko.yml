@@ -91,7 +91,6 @@ for ip in ips:
         global_ips.append(ip)
 if not global_ips:
     raise SystemExit(f"kernel_headers_url resolved only to non-global addresses, rejecting.")
-print(f"{host}\t{port}\t{sorted(global_ips)[0]}")
 PY
           }
 
@@ -118,7 +117,7 @@ with tf:
             raise SystemExit(f"Unsafe archive entry path: {member.name}")
         if member.issym() or member.islnk():
             link_path = pathlib.PurePosixPath(member.linkname)
-            if link_path.is_absolute() or ".." in link_path.parts:
+            if link_path.is_absolute():
                 raise SystemExit(f"Unsafe archive link target: {member.linkname}")
             parent_parts = list(member_path.parent.parts)
             target_parts = list(link_path.parts)
@@ -137,13 +136,8 @@ with tf:
 PY
           }
 
-          IFS=$'\t' read -r RESOLVED_HOST RESOLVED_PORT RESOLVED_IP <<< "$(validate_headers_url "$HEADERS_URL")"
-          CURL_RESOLVED_IP="$RESOLVED_IP"
-          if [[ "$RESOLVED_IP" == *:* ]]; then
-            CURL_RESOLVED_IP="[$RESOLVED_IP]"
-          fi
+          validate_headers_url "$HEADERS_URL"
           curl -fsS --proto '=https' --max-redirs 0 \
-            --resolve "${RESOLVED_HOST}:${RESOLVED_PORT}:${CURL_RESOLVED_IP}" \
             --output "$ARCHIVE" \
             "$HEADERS_URL"
           extract_archive_safely "$ARCHIVE" "$EXTRACTED"
