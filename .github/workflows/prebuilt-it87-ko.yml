@@ -129,17 +129,27 @@ PY
           IFS=',' read -r -a RESOLVED_IP_ARRAY <<< "$RESOLVED_IPS"
           downloaded=0
           for resolved_ip in "${RESOLVED_IP_ARRAY[@]}"; do
-            http_code="$(HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= NO_PROXY= https_proxy= http_proxy= all_proxy= no_proxy= \
+            http_code_probe="$(HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= NO_PROXY= https_proxy= http_proxy= all_proxy= no_proxy= \
+              curl -sS --proto '=https' --max-redirs 0 \
+              --connect-to "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}:${RESOLVED_PORT}" \
+              --write-out '%{http_code}' \
+              --output /dev/null \
+              "$HEADERS_URL" || true)"
+            if [[ "$http_code_probe" =~ ^3 ]]; then
+              echo "Redirect responses are not allowed for kernel_headers_url." >&2
+              exit 1
+            fi
+            if [[ ! "$http_code_probe" =~ ^2 ]]; then
+              continue
+            fi
+
+            http_code_download="$(HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= NO_PROXY= https_proxy= http_proxy= all_proxy= no_proxy= \
               curl -sS --proto '=https' --max-redirs 0 \
               --connect-to "${RESOLVED_HOST}:${RESOLVED_PORT}:${resolved_ip}:${RESOLVED_PORT}" \
               --write-out '%{http_code}' \
               --output "$ARCHIVE" \
               "$HEADERS_URL" || true)"
-            if [[ "$http_code" =~ ^3 ]]; then
-              echo "Redirect responses are not allowed for kernel_headers_url." >&2
-              exit 1
-            fi
-            if [[ "$http_code" =~ ^2 ]]; then
+            if [[ "$http_code_download" =~ ^2 ]]; then
               downloaded=1
               break
             fi
@@ -190,7 +200,7 @@ PY
                 echo "$candidate"
                 return 0
               fi
-            done < <(find "$base" -type d -path '*/include/linux' | sort -u || true)
+            done < <(find "$base" -maxdepth 8 -type d -path '*/include/linux' | sort -u || true)
 
             return 1
           }
