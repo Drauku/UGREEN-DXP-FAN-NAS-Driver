@@ -6,7 +6,9 @@
 #
 # Features:
 #  - Dual independent fan curves: CPU temperature and storage (NVMe/SATA) temperature.
-#  - Three selectable curve presets: silent, normal, powerful.
+#  - iDX6011 Pro support: paired CPU/system fan control, four fan tachometers,
+#    auto/quiet/turbo/max modes, and a keep-spinning floor.
+#  - Three generic curve presets: silent, normal, powerful.
 #  - Piecewise-linear PWM interpolation between curve points.
 #  - Auto-detection of the ITE Super I/O hwmon PWM sysfs path.
 #  - Explicit manual-mode activation (pwmN_enable=1) before every write.
@@ -26,7 +28,7 @@ POLL_INTERVAL="${POLL_INTERVAL:-10}"
 FAILSAFE_PWM="${FAILSAFE_PWM:-200}"
 MIN_PWM="${MIN_PWM:-50}"
 MAX_PWM="${MAX_PWM:-255}"
-FAN_MODE="${FAN_MODE:-normal}"
+FAN_MODE="${FAN_MODE:-auto}"
 
 CPU_FAN_CURVE="${CPU_FAN_CURVE:-35:50,50:100,65:180,75:255}"
 DISK_FAN_CURVE="${DISK_FAN_CURVE:-35:60,45:110,55:180,60:255}"
@@ -42,6 +44,16 @@ FAN_PWM_PATH="${FAN_PWM_PATH:-}"
 
 # Optional override for the CPU temperature sysfs input file.
 CPU_TEMP_PATH="${CPU_TEMP_PATH:-}"
+
+IDX6011_CPU_SILENT_CURVE="${IDX6011_CPU_SILENT_CURVE:-0:25,60:25,72:50,80:75,88:100}"
+IDX6011_CPU_QUIET_CURVE="${IDX6011_CPU_QUIET_CURVE:-0:30,55:30,68:55,78:80,86:100}"
+IDX6011_CPU_TURBO_CURVE="${IDX6011_CPU_TURBO_CURVE:-0:45,50:45,65:75,75:95,82:100}"
+IDX6011_DISK_SILENT_CURVE="${IDX6011_DISK_SILENT_CURVE:-0:25,45:25,52:50,58:80,62:100}"
+IDX6011_DISK_QUIET_CURVE="${IDX6011_DISK_QUIET_CURVE:-0:30,42:30,50:55,56:82,62:100}"
+IDX6011_DISK_TURBO_CURVE="${IDX6011_DISK_TURBO_CURVE:-0:45,40:45,48:78,54:96,60:100}"
+IDX6011_FAN_FLOOR="${IDX6011_FAN_FLOOR:-25}"
+IDX6011_CPU_CRITICAL="${IDX6011_CPU_CRITICAL:-88}"
+IDX6011_DISK_CRITICAL="${IDX6011_DISK_CRITICAL:-60}"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -306,11 +318,147 @@ apply_pwm() {
     fi
 }
 
+is_idx6011_pro() {
+    [[ -r /sys/class/dmi/id/product_name ]] &&
+        [[ "$(cat /sys/class/dmi/id/product_name 2>/dev/null)" == "iDX6011 Pro" ]]
+}
+
+idx6011_pwm_paths() {
+    local base="$1" i
+    for i in 1 2 3 4; do
+        [[ -f "$base/pwm${i}" ]] || return 1
+    done
+    for i in 1 2 3 4; do
+        echo "$base/pwm${i}"
+    done
+}
+
+idx6011_hwmon_dir() {
+    local hwmon name
+    for hwmon in /sys/class/hwmon/hwmon*; do
+        [[ -f "$hwmon/name" ]] || continue
+        name=$(cat "$hwmon/name" 2>/dev/null) || continue
+        [[ "$name" == "it5571" || "$name" == "it87" ]] || continue
+        idx6011_pwm_paths "$hwmon" >/dev/null && {
+            echo "$hwmon"
+            return 0
+        }
+    done
+    return 1
+}
+
+idx6011_set_pair() {
+    local base="$1" target="$2" i pwm
+    for i in 0 1; do
+        pwm="${IDX6011_PWM_PATHS[$((base + i))]}"
+        enable_manual_pwm "$pwm"
+        echo "$target" > "$pwm" 2>/dev/null || return 1
+    done
+}
+
+idx6011_release() {
+    local pwm enable
+    for pwm in "${IDX6011_PWM_PATHS[@]}"; do
+        enable="${pwm}_enable"
+        [[ -f "$enable" ]] && echo 2 > "$enable" 2>/dev/null || true
+    done
+}
+
+idx6011_fan_stalled() {
+    local i rpm
+    for i in 1 2 3 4; do
+        rpm=$(cat "${IDX6011_HWMON_DIR}/fan${i}_input" 2>/dev/null) || continue
+        [[ "$rpm" =~ ^[0-9]+$ ]] && (( rpm == 0 )) && return 0
+    done
+    return 1
+}
+
+idx6011_compute_targets() {
+    local cpu_raw disk_raw max_disk cpu_curve disk_curve cpu disk
+    cpu_raw=$(read_cpu_temp)
+    disk_raw=$(read_disk_temps)
+    [[ -n "$cpu_raw" || -n "$disk_raw" ]] || return 1
+
+    case "${FAN_MODE,,}" in
+        silent) cpu_curve="$IDX6011_CPU_SILENT_CURVE"; disk_curve="$IDX6011_DISK_SILENT_CURVE" ;;
+        turbo) cpu_curve="$IDX6011_CPU_TURBO_CURVE"; disk_curve="$IDX6011_DISK_TURBO_CURVE" ;;
+        quiet|normal) cpu_curve="$IDX6011_CPU_QUIET_CURVE"; disk_curve="$IDX6011_DISK_QUIET_CURVE" ;;
+        max) echo "100 100"; return 0 ;;
+        auto) echo "auto auto"; return 0 ;;
+        *) log_warn "Unknown iDX6011 FAN_MODE '${FAN_MODE}', falling back to auto"; echo "auto auto"; return 0 ;;
+    esac
+
+    parse_curve "$cpu_curve"
+    local -a cpu_temps=("${CURVE_TEMPS[@]}") cpu_pwms=("${CURVE_PWMS[@]}")
+    parse_curve "$disk_curve"
+    local -a disk_temps=("${CURVE_TEMPS[@]}") disk_pwms=("${CURVE_PWMS[@]}")
+    cpu=0
+    [[ -n "$cpu_raw" ]] && cpu=$(interpolate_curve "$cpu_raw" \
+        cpu_temps cpu_pwms)
+    max_disk=$(list_max "$disk_raw")
+    disk="$IDX6011_FAN_FLOOR"
+    (( max_disk > 0 )) && disk=$(interpolate_curve "$max_disk" \
+        disk_temps disk_pwms)
+    (( cpu_raw >= IDX6011_CPU_CRITICAL * SCALE )) && cpu=100
+    (( max_disk >= IDX6011_DISK_CRITICAL * SCALE )) && disk=100
+    cpu=$(clamp "$cpu" "$IDX6011_FAN_FLOOR" 100)
+    disk=$(clamp "$disk" "$IDX6011_FAN_FLOOR" 100)
+    echo "$cpu $disk"
+}
+
+idx6011_main() {
+    local hwmon="$1" current_cpu="" current_disk="" cpu_target disk_target
+    IDX6011_HWMON_DIR="$hwmon"
+    mapfile -t IDX6011_PWM_PATHS < <(idx6011_pwm_paths "$hwmon")
+    cleanup_idx6011() {
+        log_info "Received signal, returning iDX6011 fans to EC automatic mode and exiting"
+        idx6011_release
+        exit 0
+    }
+    trap cleanup_idx6011 SIGTERM SIGINT
+
+    log_info "iDX6011 Pro fan control: $FAN_MODE (PWM duty is scaled to EC max 198)"
+    while true; do
+        read -r cpu_target disk_target < <(idx6011_compute_targets)
+        if [[ -z "$cpu_target" || -z "$disk_target" ]]; then
+            log_warn "iDX6011 sensor read failure; returning fans to EC automatic mode"
+            idx6011_release
+            sleep "$POLL_INTERVAL"
+            continue
+        fi
+        if [[ "$cpu_target" == auto ]]; then
+            [[ "$current_cpu" == auto ]] || idx6011_release
+            current_cpu=auto; current_disk=auto
+        else
+            idx6011_fan_stalled && { cpu_target=100; disk_target=100; }
+            if [[ "$cpu_target" != "$current_cpu" ]]; then
+                idx6011_set_pair 0 "$((cpu_target * 255 / 100))" || log_warn "Failed to set iDX6011 CPU fan pair"
+                current_cpu="$cpu_target"
+            fi
+            if [[ "$disk_target" != "$current_disk" ]]; then
+                idx6011_set_pair 2 "$((disk_target * 255 / 100))" || log_warn "Failed to set iDX6011 system fan pair"
+                current_disk="$disk_target"
+            fi
+        fi
+        sleep "$POLL_INTERVAL"
+    done
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
     log_info "UGREEN Fan Control Daemon starting"
+
+    if is_idx6011_pro; then
+        local idx_hwmon
+        idx_hwmon=$(idx6011_hwmon_dir) || {
+            log_error "iDX6011 Pro detected, but four fan PWM channels were not found"
+            exit 1
+        }
+        idx6011_main "$idx_hwmon"
+        return
+    fi
 
     # Select fan curves based on FAN_MODE
     local cpu_curve_str disk_curve_str
@@ -323,7 +471,7 @@ main() {
             cpu_curve_str="$POWERFUL_CPU_FAN_CURVE"
             disk_curve_str="$POWERFUL_DISK_FAN_CURVE"
             ;;
-        normal|*)
+        normal|auto|*)
             if [[ "${FAN_MODE,,}" != "normal" ]]; then
                 log_warn "Unknown FAN_MODE '${FAN_MODE}', falling back to 'normal'"
             fi
