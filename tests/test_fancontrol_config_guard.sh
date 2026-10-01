@@ -99,17 +99,115 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# iDX6011 Pro fan-control contract
+# iDX6011 Pro fan-control behavior
 # ---------------------------------------------------------------------------
-log_test "iDX6011 Pro fan-control source contract is present"
-if grep -q 'FAN_MODE.*auto' "$FAN_SCRIPT" &&
-   grep -q 'idx6011_set_pair' "$FAN_SCRIPT" &&
-   grep -q 'IDX6011_FAN_FLOOR' "$FAN_SCRIPT" &&
-   grep -q 'idx6011_release' "$FAN_SCRIPT"; then
-    pass "iDX6011 paired fan modes and safe EC handoff are implemented"
+log_test "iDX6011 sensor-independent modes and target calculation"
+FAN_MODE=max
+read_cpu_temp() { return 1; }
+read_disk_temps() { return 1; }
+assert_eq "100 100" "$(idx6011_compute_targets)" "max mode works without temperature sensors"
+
+FAN_MODE=auto
+assert_eq "auto auto" "$(idx6011_compute_targets)" "auto mode works without temperature sensors"
+
+FAN_MODE=invalid
+UNKNOWN_MODE_STDERR=$(mktemp)
+unknown_targets=$(idx6011_compute_targets 2>"$UNKNOWN_MODE_STDERR")
+assert_eq "auto auto" "$unknown_targets" "unknown mode keeps stdout machine-readable"
+if grep -q "Unknown iDX6011 FAN_MODE" "$UNKNOWN_MODE_STDERR"; then
+    pass "unknown mode warning is written to stderr"
 else
-    fail "iDX6011 paired fan modes and safe EC handoff are implemented"
+    fail "unknown mode warning is written to stderr"
 fi
+rm -f "$UNKNOWN_MODE_STDERR"
+
+FAN_MODE=quiet
+IDX6011_CPU_QUIET_CURVE="0:30,100:90"
+IDX6011_DISK_QUIET_CURVE="0:30,100:100"
+read_cpu_temp() { echo 50000; }
+read_disk_temps() { echo 50000; }
+assert_eq "60 65" "$(idx6011_compute_targets)" "quiet targets interpolate CPU and disk temperatures"
+read_cpu_temp() { echo ""; }
+read_disk_temps() { echo ""; }
+if idx6011_compute_targets >/dev/null; then
+    fail "quiet mode fails when all temperature sensors are unavailable"
+else
+    pass "quiet mode fails when all temperature sensors are unavailable"
+fi
+
+TEST_TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_TMP_DIR"' EXIT
+
+make_idx6011_hwmon() {
+    local hwmon i
+    hwmon=$(mktemp -d "$TEST_TMP_DIR/hwmon.XXXXXX")
+    for i in 1 2 3 4; do
+        : > "$hwmon/pwm${i}"
+        echo 2 > "$hwmon/pwm${i}_enable"
+        echo 1200 > "$hwmon/fan${i}_input"
+    done
+    echo "$hwmon"
+}
+
+log_test "iDX6011 paired writes apply both PWM channels"
+PAIR_HWMON=$(make_idx6011_hwmon)
+IDX6011_PWM_PATHS=("$PAIR_HWMON/pwm1" "$PAIR_HWMON/pwm2" "$PAIR_HWMON/pwm3" "$PAIR_HWMON/pwm4")
+if idx6011_set_pair 0 128; then
+    pass "CPU pair write succeeds"
+else
+    fail "CPU pair write succeeds"
+fi
+for i in 1 2; do
+    assert_eq "128" "$(cat "$PAIR_HWMON/pwm${i}")" "CPU fan $i receives the paired duty"
+    assert_eq "1" "$(cat "$PAIR_HWMON/pwm${i}_enable")" "CPU fan $i is enabled in manual mode"
+done
+
+run_idx6011_loop() {
+    local hwmon="$1" scenario="$2" calls_file="$3" output_file="$4"
+    (
+        local ticks=0 test_cpu_raw=50000 test_disk_raw=50000
+        set +e
+        FAN_MODE=quiet
+        read_cpu_temp() { printf '%s\n' "$test_cpu_raw"; }
+        read_disk_temps() { printf '%s\n' "$test_disk_raw"; }
+        idx6011_set_pair() {
+            printf '%s %s\n' "$1" "$2" >> "$calls_file"
+            if [[ "$scenario" == retry && "$1" == 0 ]] &&
+               [[ $(grep -c '^0 ' "$calls_file") -eq 1 ]]; then
+                return 1
+            fi
+            return 0
+        }
+        sleep() {
+            ticks=$((ticks + 1))
+            case "$scenario:$ticks" in
+                recovery:1) test_cpu_raw=""; test_disk_raw="" ;;
+                recovery:2) test_cpu_raw=50000; test_disk_raw=50000 ;;
+                recovery:3) echo 0 > "$hwmon/fan1_input" ;;
+                recovery:4) FAN_MODE=auto; test_cpu_raw=""; test_disk_raw="" ;;
+                recovery:5|retry:2) exit 0 ;;
+            esac
+        }
+        idx6011_main "$hwmon" > "$output_file" 2>&1
+    )
+}
+
+log_test "iDX6011 sensor recovery, stall response, and EC handoff"
+RECOVERY_HWMON=$(make_idx6011_hwmon)
+RECOVERY_CALLS="$TEST_TMP_DIR/recovery.calls"
+run_idx6011_loop "$RECOVERY_HWMON" recovery "$RECOVERY_CALLS" "$TEST_TMP_DIR/recovery.log"
+assert_eq $'0 153\n2 165\n0 153\n2 165\n0 255\n2 255' \
+    "$(cat "$RECOVERY_CALLS")" "sensor recovery reapplies targets and a stall forces both pairs to full speed"
+for i in 1 2 3 4; do
+    assert_eq "2" "$(cat "$RECOVERY_HWMON/pwm${i}_enable")" "auto mode returns fan $i to EC control"
+done
+
+log_test "iDX6011 failed pair writes are retried"
+RETRY_HWMON=$(make_idx6011_hwmon)
+RETRY_CALLS="$TEST_TMP_DIR/retry.calls"
+run_idx6011_loop "$RETRY_HWMON" retry "$RETRY_CALLS" "$TEST_TMP_DIR/retry.log"
+assert_eq $'0 153\n2 165\n0 153' "$(cat "$RETRY_CALLS")" \
+    "failed CPU pair write is retried without rewriting the successful system pair"
 
 # ---------------------------------------------------------------------------
 # Summary

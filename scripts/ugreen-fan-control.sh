@@ -375,18 +375,18 @@ idx6011_fan_stalled() {
 
 idx6011_compute_targets() {
     local cpu_raw disk_raw max_disk cpu_curve disk_curve cpu disk
-    cpu_raw=$(read_cpu_temp)
-    disk_raw=$(read_disk_temps)
-    [[ -n "$cpu_raw" || -n "$disk_raw" ]] || return 1
-
     case "${FAN_MODE,,}" in
         silent) cpu_curve="$IDX6011_CPU_SILENT_CURVE"; disk_curve="$IDX6011_DISK_SILENT_CURVE" ;;
         turbo) cpu_curve="$IDX6011_CPU_TURBO_CURVE"; disk_curve="$IDX6011_DISK_TURBO_CURVE" ;;
         quiet|normal) cpu_curve="$IDX6011_CPU_QUIET_CURVE"; disk_curve="$IDX6011_DISK_QUIET_CURVE" ;;
         max) echo "100 100"; return 0 ;;
         auto) echo "auto auto"; return 0 ;;
-        *) log_warn "Unknown iDX6011 FAN_MODE '${FAN_MODE}', falling back to auto"; echo "auto auto"; return 0 ;;
+        *) log_warn "Unknown iDX6011 FAN_MODE '${FAN_MODE}', falling back to auto" >&2; echo "auto auto"; return 0 ;;
     esac
+
+    cpu_raw=$(read_cpu_temp)
+    disk_raw=$(read_disk_temps)
+    [[ -n "$cpu_raw" || -n "$disk_raw" ]] || return 1
 
     parse_curve "$cpu_curve"
     local -a cpu_temps=("${CURVE_TEMPS[@]}") cpu_pwms=("${CURVE_PWMS[@]}")
@@ -423,6 +423,7 @@ idx6011_main() {
         if [[ -z "$cpu_target" || -z "$disk_target" ]]; then
             log_warn "iDX6011 sensor read failure; returning fans to EC automatic mode"
             idx6011_release
+            current_cpu=""; current_disk=""
             sleep "$POLL_INTERVAL"
             continue
         fi
@@ -432,12 +433,18 @@ idx6011_main() {
         else
             idx6011_fan_stalled && { cpu_target=100; disk_target=100; }
             if [[ "$cpu_target" != "$current_cpu" ]]; then
-                idx6011_set_pair 0 "$((cpu_target * 255 / 100))" || log_warn "Failed to set iDX6011 CPU fan pair"
-                current_cpu="$cpu_target"
+                if idx6011_set_pair 0 "$((cpu_target * 255 / 100))"; then
+                    current_cpu="$cpu_target"
+                else
+                    log_warn "Failed to set iDX6011 CPU fan pair"
+                fi
             fi
             if [[ "$disk_target" != "$current_disk" ]]; then
-                idx6011_set_pair 2 "$((disk_target * 255 / 100))" || log_warn "Failed to set iDX6011 system fan pair"
-                current_disk="$disk_target"
+                if idx6011_set_pair 2 "$((disk_target * 255 / 100))"; then
+                    current_disk="$disk_target"
+                else
+                    log_warn "Failed to set iDX6011 system fan pair"
+                fi
             fi
         fi
         sleep "$POLL_INTERVAL"
