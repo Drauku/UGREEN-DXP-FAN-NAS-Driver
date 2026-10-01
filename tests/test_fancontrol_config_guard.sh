@@ -99,6 +99,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# iDX6011 Pro fan-control contract
+# ---------------------------------------------------------------------------
+log_test "iDX6011 Pro fan-control source contract is present"
+if grep -q 'FAN_MODE.*auto' "$FAN_SCRIPT" &&
+   grep -q 'idx6011_set_pair' "$FAN_SCRIPT" &&
+   grep -q 'IDX6011_FAN_FLOOR' "$FAN_SCRIPT" &&
+   grep -q 'idx6011_release' "$FAN_SCRIPT"; then
+    pass "iDX6011 paired fan modes and safe EC handoff are implemented"
+else
+    fail "iDX6011 paired fan modes and safe EC handoff are implemented"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

@@ -472,7 +472,7 @@ main() {
             disk_curve_str="$POWERFUL_DISK_FAN_CURVE"
             ;;
         normal|auto|*)
-            if [[ "${FAN_MODE,,}" != "normal" ]]; then
+            if [[ "${FAN_MODE,,}" != "normal" && "${FAN_MODE,,}" != "auto" ]]; then
                 log_warn "Unknown FAN_MODE '${FAN_MODE}', falling back to 'normal'"
             fi
             cpu_curve_str="$CPU_FAN_CURVE"

@@ -110,12 +110,19 @@ systemctl status ugreen-fan-control.service
 journalctl -u ugreen-fan-control.service -f
 ```
 
-To adjust the fan curves or mode (`silent` / `normal` / `powerful`), edit
+To adjust the fan curves or mode, edit
 `/etc/ugreen/ugreen-fan-control.env` and restart the service:
 
 ```bash
 sudo systemctl restart ugreen-fan-control.service
 ```
+
+On the iDX6011 Pro, the supplied fan-control register map is supported directly:
+`auto` hands all four fans back to the EC, while `silent`, `quiet`, `turbo`, and
+`max` drive the CPU and system fan pairs. A 25% floor prevents stalled fans,
+critical temperatures force 100%, and a zero-RPM watchdog temporarily drives both
+pairs at full speed. Other models continue to use the generic `silent` /
+`normal` / `powerful` curves.
 
 The installer automatically sets up systemd services that ensure:
 - The `hwmon-vid` dependency module is loaded before `it87`
