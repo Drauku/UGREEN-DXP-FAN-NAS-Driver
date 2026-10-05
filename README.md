@@ -23,7 +23,7 @@ What's currently being supported:
 
 What's currently being partially supported: 
 
-- DXP6800Pro (See [Issue](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/6) #6 for now)
+- DXP6800 Pro (IT8613E, chip ID `0x8613` at ioreg `0x2e`, hwmon `it8613`; see [Issue #6](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/6)). Fan map: `pwm2` CPU fan, `pwm3` and `pwm4` rear fans, `pwm5` has no tachometer. `temp1` is the CPU (PECI) and `temp2` a board sensor. Readings and manual PWM work on all three fans, and `pwm2`/`pwm3` hardware curves work. The `pwm4` curve cannot be programmed: its `auto_point*_temp` attributes write `pwm3`'s registers. The stock kernel `it87` rejects this chip (`Unsupported chip (DEVID=0x8613)`); do not use `force_id=0x8628`, because the IT8628E keeps PWM4/PWM5 at different registers.
 
 What's **not supported** by this driver (investigation completed — [Issue #18](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/18)):
 
