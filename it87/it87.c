@@ -712,7 +712,7 @@ struct it87_dmi_data {
 /* Global for results from DMI matching, if needed */
 static const struct it87_dmi_data *dmi_data;
 
-static bool it5571_dxp6011_pro_board(void)
+static bool it5571_idx6011_pro_board(void)
 {
 	return dmi_match(DMI_PRODUCT_NAME, "iDX6011 Pro");
 }
@@ -3148,7 +3148,7 @@ static int __init it87_find(int sioaddr, unsigned short *address,
 		sio_data->type = it8622;
 		break;
 	case IT8622E_OEM_DEVID:
-		if (it5571_dxp6011_pro_board())
+		if (it5571_idx6011_pro_board())
 			sio_data->type = it5571;
 		else
 			sio_data->type = it8622;

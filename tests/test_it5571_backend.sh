@@ -2,7 +2,7 @@
 #
 # test_it5571_backend.sh
 #
-# Verifies the DXP6011 Pro / ITE5571 EC-backed support path in it87.c.
+# Verifies the iDX6011 Pro / ITE5571 EC-backed support path in it87.c.
 
 set -euo pipefail
 
@@ -32,12 +32,12 @@ check_contains() {
     fi
 }
 
-echo "=== ITE5571 DXP6011 Pro backend ==="
+echo "=== ITE5571 iDX6011 Pro backend ==="
 
 check_contains '#define IT8622E_OEM_DEVID 0x5571' \
     '0x5571 OEM device ID is defined'
 check_contains 'DMI_PRODUCT_NAME, "iDX6011 Pro"' \
-    'DXP6011 Pro DMI product string is matched'
+    'iDX6011 Pro DMI product string is matched'
 check_contains '#define IT55_EC_DATA_PORT[[:space:]]+0x62' \
     'EC data port is defined'
 check_contains '#define IT55_EC_CMD_PORT[[:space:]]+0x66' \
@@ -56,7 +56,7 @@ check_contains 'static const u8 IT5571_REG_FAN_LSB\[\].*0x35, 0x37, 0x39, 0x3b' 
     'fan tachometer LSB registers are defined'
 check_contains 'case IT8622E_OEM_DEVID:' \
     'probe recognizes the 0x5571 OEM device ID'
-check_contains 'if \(it5571_dxp6011_pro_board\(\)\)' \
+check_contains 'if \(it5571_idx6011_pro_board\(\)\)' \
     'probe routes iDX6011 Pro to the ITE5571 backend'
 check_contains 'if \(data->type == it5571\)' \
     'driver has a dedicated ITE5571 backend path'

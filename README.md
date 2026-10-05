@@ -19,14 +19,11 @@ What's currently being supported:
 - DXP8800
 - DXP4800 ([Issue #11](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/11) resolved — fan visibility and PWM control implemented; see the `pwmconfig` prompt selections in the Troubleshooting section for DXP4800 specifics)
 - iDX6011 (IT8622E at ioreg 0x4e; OEM chip ID 0x5571; `force_activate=1` is handled automatically via DMI — only needed as a fallback if auto-detection fails, see Troubleshooting section)
+- iDX6011 Pro (same OEM chip ID `0x5571` at `0x4e`, matched by the exact DMI product name `iDX6011 Pro` and driven through the ITE5571 EC backend; exposes `it5571` hwmon with `pwm1`–`pwm4` and `fan1`–`fan4`. Originally reported in [Issue #23](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/23).)
 
 What's currently being partially supported: 
 
 - DXP6800Pro (See [Issue](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/6) #6 for now)
-
-What's currently under investigation / testing:
-
-- DXP6011 Pro ([Issue #23](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/23) closed, triaged in [PR #24](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/pull/24) — reported on unRAID with an unknown Super I/O ID `0x5571` at `0x4e`; plain `modprobe it87 ignore_resource_conflict=1` still fails with `No such device`, so support is pending register-dump analysis and `force_id` testing. UGREEN's published `kernel-6.12` GPL tree also contains a vendor `drivers/ugreen/` area that references `ug_idx6011pro-sio.o` and `leds-mcu.o`, and `ug_it55pro_functions.c` identifies the vendor product string as `iDX6011 Pro` and the chip as `ITE5571`, with OEM fan-control code paths that are useful reverse-engineering material even though the source drop appears incomplete.)
 
 What's **not supported** by this driver (investigation completed — [Issue #18](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver/issues/18)):
 

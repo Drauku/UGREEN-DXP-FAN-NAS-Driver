@@ -25,7 +25,7 @@ v$PKGVER — automated release build
 UGREEN DXP NAS system fan driver (it87) for unRAID.
 Downloads the driver source, builds the out-of-tree it87 hwmon module
 against the running unRAID kernel and loads it.
-Supports DXP2800, DXP4800, DXP8800, iDX6011 and DXP2800 GT.
+Supports DXP2800, DXP4800, DXP8800, iDX6011, iDX6011 Pro and DXP2800 GT.
 Fan control is handled by the UGREEN-Fan-Control daemon or fancontrol.
 ]]>
 </DESCRIPTION>
