@@ -34,7 +34,7 @@ Maintainer: $MAINT
 Homepage: https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver
 Description: UGREEN DXP NAS system fan kernel driver (it87) — DKMS source
  Out-of-tree it87 hwmon driver with UGREEN NAS OEM chip support
- (DXP2800, DXP4800, DXP8800, iDX6011, DXP2800 GT and others).
+ (DXP2800, DXP4800, DXP8800, iDX6011, iDX6011 Pro, DXP2800 GT and others).
  The module is compiled locally against the running kernel via DKMS.
 EOF
 

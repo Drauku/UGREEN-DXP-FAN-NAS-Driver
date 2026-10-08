@@ -34,7 +34,7 @@ Recommends: kernel-devel
 
 %description
 Out-of-tree it87 hwmon driver with UGREEN NAS OEM chip support
-(DXP2800, DXP4800, DXP8800, iDX6011, DXP2800 GT and others).
+(DXP2800, DXP4800, DXP8800, iDX6011, iDX6011 Pro, DXP2800 GT and others).
 The module is compiled locally against the running kernel via DKMS.
 
 %prep
